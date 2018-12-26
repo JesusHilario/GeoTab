@@ -1,0 +1,269 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+
+    <head>
+
+        <meta charset="utf-8" />
+
+        <title>Geotab SDK | Show vehicle's trip for today</title>
+
+        <link href="js/mapbox/mapbox.css" rel="stylesheet" type="text/css" />
+        <link href="css/geotab.css" rel="stylesheet" type="text/css" />
+
+    </head>
+
+    <body>
+
+        <header>
+            <div class="container">
+                <nav>
+                    <img src="http://www.geotab.com/webimages/header/geotablogo.png" alt=""/>
+                    <button id="help">Help</button>
+                    <button id="signout">Sign out</button>
+                </nav>
+                <h1>Example: Show vehicle's trip</h1>
+                <h3>Displays where a vehicle has traveled today</h3>
+            </div>
+        </header>
+
+        <div class="container bordered">
+
+            <div id="signin-content"></div>
+
+            <div id="example-content">
+                <form>
+                    <h3>Show vehicle</h3>
+                    <p>
+                        <select id="device">
+                            <option disabled="disabled">Select a vehicle</option>
+                        </select>
+                    </p>
+                    <p>
+                        <input id="advanced" type="checkbox" /> Advanced trip
+                    </p>
+                </form>
+            </div>
+
+        </div>
+
+        <div class="container bordered spaced">
+            <div id="map"></div>
+        </div>
+
+        <footer>
+            <div class="container footernotes">
+                <p>Source code provided as part of the <a href="https://helpdesk.geotab.com/forums" target="_blank">Geotab SDK</a>.</p>
+                <p>Last updated on 08/31/2015</p>
+            </div>
+        </footer>
+
+        <div id="help-content">
+            <h2>Help</h2>
+            <p>
+                <strong>Overview</strong><br />
+                This example demonstrates some simple API requests and drawing a vehicle's trip on a map.
+            </p>
+            <p>
+                <strong>Work flow</strong><br />
+                Your vehicles are retrieved using an initial API request for all Device entities. Then when one is
+                selected, the current day's <a href="https://my6.geotab.com/sdk/default.html#/api" target="_blank">LogRecords</a>
+                are retrieved. We then iterate over them drawing each point as a segment of a polyline on the map.
+            </p>
+            <p>
+                The advanced trip option turns on improved visualization of the vehicle's speed during the trip.
+            </p>
+            <p>
+                <strong>Skill level</strong><br />
+                Beginner
+            </p>
+        </div>
+
+        <script src="js/mapbox/mapbox.js"></script>
+        <script src="js/api.js"></script>
+        <script src="js/login.js"></script>
+
+        <script type="text/javascript">
+
+            var map;
+            var featureGroup;
+
+            document.addEventListener("DOMContentLoaded", function() {
+
+                // Download devices to work with
+                populateDevices();
+
+                // Initialize MapBox engine (http://www.mapbox.com)
+                L.mapbox.accessToken = "pk.eyJ1IjoiZ2VvdGFiIiwiYSI6ImNpd2Nlam5tajA2cHIyenBmdDQyZG9mMGYifQ.I7NikOui41_ka1TbbFGkFw";
+                map = L.mapbox.map("map").setView([43.437111,-79.712756], 13);
+                L.mapbox.styleLayer("mapbox://styles/mapbox/streets-v10").addTo(map);
+                featureGroup = L.featureGroup().addTo(map);
+
+                document.getElementById("device").addEventListener("change", function(event) {
+                    event.preventDefault();
+
+                    var deviceId = event.target[event.target.selectedIndex].getAttribute("data-deviceid");
+                    var advanced = document.getElementById("advanced").checked;
+
+                    var beginningOfDay = new Date();
+                    beginningOfDay.setHours(0, 0, 0, 0);
+
+                    var endOfDay = new Date();
+                    endOfDay.setHours(23, 59, 59, 59);
+
+                    api.call("Get", {
+                        typeName: "LogRecord",
+                        search: {
+                            deviceSearch: {
+                                id: deviceId
+                            },
+                            fromDate: beginningOfDay.toISOString(),
+                            toDate: endOfDay.toISOString()
+                        }
+                    }, function(result) {
+                        if (result !== undefined) {
+                            if (advanced) {
+                                displayAdvancedTrip(result);
+                            } else {
+                                displayTrip(result);
+                            }
+                        } else {
+                            alert("Could not retrieve trip");
+                        }
+                    }, function(error) {
+                        alert(error);
+                    });
+                });
+            });
+
+            function populateDevices() {
+                api.call("Get", {
+                    typeName: "Device"
+                }, function(result) {
+                    if (result !== undefined && result.length > 0) {
+                        var select = document.getElementById("device");
+                        var now = new Date();
+                        for (var i = 0; i < result.length; i++) {
+                            if (new Date(result[i].activeTo) > now) {
+                                var option = new Option();
+                                option.text = result[i].name;
+                                option.setAttribute("data-deviceid", result[i].id);
+                                select.add(option);
+                            }
+                        }
+                    } else {
+                        alert("Could not retrieve devices");
+                    }
+                }, function(error) {
+                    alert(error);
+                });
+            }
+
+            function displayTrip(trip) {
+                var locations = [];
+
+                for (var i = 0; i < trip.length; i++) {
+                    var location = new L.LatLng(trip[i].latitude, trip[i].longitude);
+                    locations.push(location);
+                }
+
+                var polyline = L.polyline(locations, {
+                    color: "Blue"
+                });
+
+                var marker = L.marker(locations[locations.length-1]).bindPopup("Current location");
+
+                featureGroup.clearLayers();
+                featureGroup.addLayer(polyline);
+                featureGroup.addLayer(marker);
+
+                map.fitBounds(featureGroup.getBounds());
+            }
+
+            function displayAdvancedTrip(trip) {
+                if (trip.length <= 1) {
+                    var marker = L.marker(new L.LatLng(trip[0].latitude, trip[0].longitude)).bindPopup("Current location");
+                    featureGroup.clearLayers().addLayer(marker);
+                    map.fitBounds(featureGroup.getBounds());
+                } else {
+                    var distance = 0.0;
+                    var polylines = [];
+
+                    for (var i = 0; i < trip.length - 1; i++) {
+                        var current = new L.LatLng(trip[i].latitude, trip[i].longitude);
+                        var next = new L.LatLng(trip[i + 1].latitude, trip[i + 1].longitude);
+                        distance += calculateDistance(current, next);
+
+                        polylines.push(generatePolyline({
+                            start: current,
+                            end: next,
+                            speed: trip[i].speed
+                        }));
+                    }
+
+                    var marker = L.marker(new L.LatLng(trip[0].latitude, trip[0].longitude)).bindPopup("Current location<br />Traveled approximately: " + distance.toFixed(1) + " km");
+
+                    featureGroup.clearLayers();
+
+                    for (var i = 0; i < polylines.length; i++) {
+                        featureGroup.addLayer(polylines[i]);
+                    }
+                    featureGroup.addLayer(marker);
+
+                    map.fitBounds(featureGroup.getBounds());
+                }
+            }
+
+            function generatePolyline(options) {
+                var color;
+                var opacity;
+
+                if (options.speed < 20) {
+                    opacity = 0.2;
+                    color = "Yellow";
+                } else if (options.speed < 40) {
+                    opacity = 0.3;
+                    color = "Yellow";
+                } else if (options.speed < 60) {
+                    opacity = 0.4;
+                    color = "Orange";
+                } else if (options.speed < 80) {
+                    opacity = 0.5;
+                    color = "Orange";
+                } else {
+                    opacity = 0.6;
+                    color = "Red";
+                }
+
+                return L.polyline([options.start, options.end], {
+                    opacity: opacity,
+                    color: color
+                });
+            }
+
+            function calculateDistance(location1, location2) {
+                var deltaLatitude = toRadians(location2.lat - location1.lng);
+                var deltaLongitude = toRadians(location2.lng - location1.lng);
+                var a = Math.sin(deltaLatitude / 2.0) * Math.sin(deltaLatitude / 2.0) +
+                        Math.cos(toRadians(location1.lat)) * Math.cos(toRadians(location2.lat)) *
+                        Math.sin(deltaLongitude / 2.0) * Math.sin(deltaLongitude / 2.0);
+
+                return (12734.0 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))) / 100000.0;
+            }
+
+            function toRadians(degrees) {
+                return degrees * (Math.PI / 180.0);
+            }
+
+            function toDegrees(radians) {
+                return radians * 180.0 / Math.PI;
+            }
+
+            function differenceRadians(degrees1, degrees2) {
+                return toRadians(degrees1) - toRadians(degrees2);
+            }
+
+        </script>
+
+    </body>
+
+</html>
